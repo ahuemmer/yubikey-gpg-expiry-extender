@@ -1,0 +1,55 @@
+#Header and vars will be filled in above:
+#!/bin/bash
+#keyPassphrase=...
+#masterKeyId=...
+#cardNumber=...
+#adminPin=...
+
+echo "GNUPGHOME=${GNUPGHOME}" >> /tmp/fake-pinentry.log
+
+write() {
+  echo "$(date +%Y%m%d_%H%M%S) ANSWER: $*" >> /tmp/fake-pinentry.log
+  echo $*
+}
+
+pin=
+
+echo "OK WARNING! Do NEVER use this in real production environments..."
+while read cmd rest; do
+  echo "$(date +%Y%m%d_%H%M%S) CMD: $cmd | Rest: $rest" >> /tmp/fake-pinentry.log
+  cmd=$(printf "%s" "$cmd" | tr 'A-Z' 'a-z')
+  if [[ -z "${cmd}" ]]; then
+    continue
+  fi
+  case "$cmd" in
+    \#*)
+      #Comment line...
+      ;;
+    setkeyinfo)
+      keyinfo=${rest}
+      write "OK"
+      ;;
+    setdesc)
+      if [[ ${rest} == *${masterKeyId}* ]] || [[ ${rest} == *Passphrase* ]]; then
+        pin=${keyPassphrase}
+      fi
+      if [[ ${rest} == *${cardNumber}* ]]; then
+        pin=${adminPin}
+      fi
+      write "OK"
+      ;;
+    getpin)
+      write "D ${pin}"
+      write "OK"
+      ;;
+    bye)
+      write "OK"
+      echo "$(date +%Y%m%d_%H%M%S) Exiting" >> /tmp/fake-pinentry.log
+      echo >> /tmp/fake-pinentry.log
+      exit 0
+      ;;
+    *)
+      write "OK"
+      ;;
+  esac
+done
