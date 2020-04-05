@@ -73,10 +73,15 @@ mount_ram_drive() {
   cat ${scriptPath}/${FAKE_PINENTRY_SH_TEMPLATE_FILE_NAME} >> ${fakePinentryPath} || die "Cat failed!"
   chmod u+x ${fakePinentryPath} || die "Chmod failed!"
   ok
+  echo
+}
+
+create_gpgagent_conf() {
+  [[ $interactive ]] && confirm "Create gpg-agent.conf in ephemeral GNUPGHOME?"
+  fakePinentryPath=${GNUPGHOME}/${FAKE_PINENTRY_SH_FILE_NAME}
   echo -n "  - Creating gpg-agent.conf... "
   echo "pinentry-program ${fakePinentryPath}" > ${GNUPGHOME}/gpg-agent.conf || die "Failed!"
   ok
-  echo
 }
 
 umount_ram_drive() {
@@ -346,6 +351,7 @@ mount_luks master
 retrieve_secret_data
 mount_ram_drive
 copy_old_gnupghome
+create_gpgagent_conf
 set_new_expiry_date
 copy_new_gnupghome
 create_backups
@@ -353,5 +359,3 @@ move_keys_to_yubikey
 copy_public_files
 umount_luks master
 umount_ram_drive
-
-
