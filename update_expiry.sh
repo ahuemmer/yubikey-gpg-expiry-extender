@@ -9,11 +9,33 @@ GNUPGHOME=
 scriptPath="$(cd "$(dirname "$0")" ; pwd -P)"
 interactive=""
 
-if [[ "$1" == "-i" ]] || [[ "$1" == "--interactive" ]]; then
-  echo "\"Interactive\" flag was given. Using interactive mode to ask for continuation before each command block."
-  echo
-  interactive=true
-fi
+
+processArguments() {
+  while true; do
+    case "$1" in
+      -i|--interactive)
+        echo "\"Interactive\" flag was given. Using interactive mode to ask for continuation before each command block."
+        echo
+        interactive=true    
+      ;;
+      -c|--command-preview)
+        echo "\"Command-Preview\" flag was given (also implying \"interactive\" mode. Command preview will be displayed for special commands."
+        echo
+        interactive=true
+        cmdPreview=true
+      ;;
+      --)
+        break
+      ;;
+      * )
+        [[ ! -z "$1" ]] && die "Unsupported command line argument \"$1\" given. Will not continue."
+        break
+        ;;
+    esac
+    shift  
+  done
+}
+
 
 pre_checks() {
   echo "Running pre-checks..."
@@ -36,11 +58,12 @@ pre_checks() {
 }
 
 ask_credentials() {
-  [[ $interactive ]] && confirm "Go on asking for credentials?"
+  local cmd="read -rs luksPassphrase"
+  [[ $interactive ]] && confirm "Go on asking for credentials?" "${cmd}"
   if [[ -z "${LUKS_PASSPHRASE}" ]]; then
     echo "Asking for credentials:"
     echo -n "  - Please enter LUKS passphrase: "
-    read -rs luksPassphrase
+    ${cmd}
     echo -e "${green}OK${reset} (<-- this doesn't mean the passphrase is valid!)"
     echo
   else
@@ -49,14 +72,16 @@ ask_credentials() {
 }
 
 mount_ram_drive() {
-  [[ $interactive ]] && confirm "Mount RAM drive for ephemeral GNUPGHOME?"
+  local cmdMkDir="sudo mkdir -p ${RAM_DRIVE_MOUNTPOINT}"
+  local cmdMount="sudo mount -t tmpfs none -o size=32M ${RAM_DRIVE_MOUNTPOINT}"
+  [[ $interactive ]] && confirm "Mount RAM drive for ephemeral GNUPGHOME?" "${cmdMkDir}" "${cmdMount}"
   echo "Mounting RAM drive:"
   echo -n "  - Check and do mount... "
   if mountpoint -q ${RAM_DRIVE_MOUNTPOINT}; then
     die "Was mounted already!"
   fi
-  sudo mkdir -p ${RAM_DRIVE_MOUNTPOINT} || die "Could not find/create ${RAM_DRIVE_MOUNTPOINT}!"
-  sudo mount -t tmpfs none -o size=32M ${RAM_DRIVE_MOUNTPOINT} || die "Could not mount RAM drive at ${RAM_DRIVE_MOUNTPOINT}!"
+  ${cmdMkDir} || die "Could not find/create ${RAM_DRIVE_MOUNTPOINT}!"
+  ${cmdMount} || die "Could not mount RAM drive at ${RAM_DRIVE_MOUNTPOINT}!"
   export GNUPGHOME=$(mktemp -d -p ${RAM_DRIVE_MOUNTPOINT})
   ok
   echo "    --> New GNUPGHOME is ${GNUPGHOME}."
@@ -101,7 +126,7 @@ umount_ram_drive() {
 }
 
 mount_luks() {
-  [[ $interactive ]] && confirm "LUKS-mount $1 USB stick?"
+
   if [[ "$1" == "master" ]]; then
     echo -n "Mounting encrypted USB stick (master) "
     mountingpoint=${MASTER_USB_STICK_MOUNTPOINT}
@@ -115,21 +140,29 @@ mount_luks() {
   else
     die "Must specify \"master\" or \"backup\" as first argument to ${FUNCNAME[0]}!"
   fi
-
-  if [[ ! -b $mountdevice ]]; then
-    die "Device ${mountdevice} not found!"
-  fi
   
-  optionFlag=ro
+  local optionFlag=ro
   if [[ "$2" == "rw" ]]; then
     echo "with read and write access: "
     optionFlag=rw
   else
     echo "read-only: "
   fi
+
+  local cmdMkDir="sudo mkdir -p ${mountingpoint}"
+  local cmdLuksOpen="sudo cryptsetup luksOpen ${mountdevice} ${mappingname} -d -"
+  local cmdMount="sudo mount /dev/mapper/${mappingname} ${mountingpoint} -o ${optionFlag}"
+  
+  [[ $interactive ]] && confirm "LUKS-mount $1 USB stick?" "${cmdMkDir}" "echo -n \"\${luksPassphrase}\" | ${cmdLuksOpen}" "${cmdMount}"
+  
+  if [[ ! -b $mountdevice ]]; then
+    die "Device ${mountdevice} not found!"
+  fi
+  
+  
   
   echo -n "  - Cheking mountpoint... "
-  sudo mkdir -p ${mountingpoint} || die "Could not find/create ${mountingpoint}!"
+  ${cmdMkDir} || die "Could not find/create ${mountingpoint}!"
   if mountpoint -q ${mountingpoint}; then
     echo
     echo -n "  Was mounted alreay! Remounting..."
@@ -144,11 +177,11 @@ mount_luks() {
   fi
   
   echo -n "  - Decrypting volume... "
-  echo -n "${luksPassphrase}" | sudo cryptsetup luksOpen ${mountdevice} ${mappingname} -d - || die "Could not decrypt volume ${mountdevice} using given password!"
+  echo -n "${luksPassphrase}" | ${cmdLuksOpen} || die "Could not decrypt volume ${mountdevice} using given password!"
   ok
     
   echo -n "  - Mounting decrypted volume... "
-  sudo mount /dev/mapper/${mappingname} ${mountingpoint} -o ${optionFlag} || die "Could not (re)mount /dev/mapper/${mappingname} at ${mountingpoint}!"
+  ${cmdMount} || die "Could not (re)mount /dev/mapper/${mappingname} at ${mountingpoint}!"
   ok
   
   echo
@@ -224,20 +257,27 @@ copy_old_gnupghome() {
 }
 
 set_new_expiry_date() {
-  [[ $interactive ]] && confirm "Update key expiry dates?"
+
+  local subKeyFingerprints="${SUB_KEY_FINGERPRINTS}"
+  [[ -z "${subKeyFingerprints}" ]] && subKeyFingerprints="'*'"
+
+  local cmdMasterKey="gpg --quick-set-expire "${MASTER_KEY_FINGERPRINT}" ${DAYS_UNTIL_EXPIRY}"
+  local cmdSubKeys="gpg --quick-set-expire "${MASTER_KEY_FINGERPRINT}" ${DAYS_UNTIL_EXPIRY} ${subKeyFingerprints}"
+  local cmdRevocation="echo -e \"y\\n0\\n\\ny\\n\" | gpg --command-fd 0 --output ${GNUPGHOME}/revoke.asc --no-tty --gen-revoke ${MASTER_KEY_ID}"
+  
+  [[ $interactive ]] && confirm "Update key expiry dates?" "${cmdMasterKey}" "${cmdSubKeys}" "${cmdRevocation}"
   echo "Updating key expiry dates: "
   echo -n "  - Updating master key expiry date... "
-  #gpg --pinentry-mode loopback --quick-set-expire --passphrase "${keyPassphrase}" "${MASTER_KEY_FINGERPRINT}" ${DAYS_UNTIL_EXPIRY} || die "Could not update expiry date of key with fingerprint ${MASTER_KEY_FINGERPRINT}!"
-  gpg --quick-set-expire "${MASTER_KEY_FINGERPRINT}" ${DAYS_UNTIL_EXPIRY} || die "Could not update expiry date of key with fingerprint ${MASTER_KEY_FINGERPRINT}!"
+  ${cmdMasterKey} || die "Could not update expiry date of key with fingerprint ${MASTER_KEY_FINGERPRINT}!"
   ok
   echo -n "  - Updating subkeys expiry date... "
-  gpg --quick-set-expire "${MASTER_KEY_FINGERPRINT}" ${DAYS_UNTIL_EXPIRY} '*' || die "Could not update expiry date of subkeys of key with fingerprint ${MASTER_KEY_FINGERPRINT}!"
+  ${cmdSubKeys} 
   ok
   echo -n "  - Generating new revocation certificate... "
   if [[ -f ${GNUPGHOME}/revoke.asc ]]; then
     rm ${GNUPGHOME}/revoke.asc || die "Could not delete old revocation certificate!"
   fi
-  echo -e "y\n0\n\ny\n" | gpg --command-fd 0 --output ${GNUPGHOME}/revoke.asc --no-tty --gen-revoke ${MASTER_KEY_ID} || die "Failed!"
+  eval ${cmdRevocation} || die "Failed!"
   [[ -s "${GNUPGHOME}/revoke.asc" ]] || die "Failed! Revocation certificate file does not exist or is empty!"
   ok
   echo
@@ -298,6 +338,7 @@ copy_public_files() {
   echo "Copying public files to \"transport\" USB stick:"
   echo -n "  - Mounting \"transport\" usb stick... "
   sudo mkdir -p ${PUBLIC_USB_STICK_MOUNTPOINT} || die "Could not create/access mount point at ${PUBLIC_USB_STICK_MOUNTPOINT}."
+  sudo chown user ${PUBLIC_USB_STICK_MOUNTPOINT} || die "Chown failed!"
   if mountpoint -q ${PUBLIC_USB_STICK_MOUNTPOINT}; then
     echo -n "Something is already mounted at ${PUBLIC_USB_STICK_MOUNTPOINT}! Unmouting..."
     sudo umount ${PUBLIC_USB_STICK_MOUNTPOINT} || die "Unmounting failed!"
@@ -306,18 +347,23 @@ copy_public_files() {
   fi
   sudo mount /dev/disk/by-id/${PUBLIC_USB_STICK_UUID} ${PUBLIC_USB_STICK_MOUNTPOINT} || die "Failed!"
   ok
-  echo -n "  - Checking / correcting access rights... "
-  pushd ${PUBLIC_USB_STICK_MOUNTPOINT} >/dev/null 2>&1 || die "Pushd failed!"
-  chown user . || die "Chown failed!"
-  chmod 700 . || die "Chmod failed!"
-  popd >/dev/null 2>&1 || die "Popd failed!"
+  #echo -n "  - Checking / correcting access rights... "
+  #pushd ${PUBLIC_USB_STICK_MOUNTPOINT} >/dev/null 2>&1 || die "Pushd failed!"
+  #sudo chown -R user . || die "Chown failed!"
+  #sudo chmod -R 700 . || die "Chmod failed!"
+  #popd >/dev/null 2>&1 || die "Popd failed!"
+  #ok
+  [[ $interactive ]] && confirm "Export public key?"
+  echo -n "  - Exporting public key... "
+  gpg --export --armor --output ~/public_key_${currentDate}.asc ${MASTER_KEY_ID}
   ok
-  echo -n "  - Exporting public key to to \"transport\" usb stick... "
-  gpg --export --armor --output ${PUBLIC_USB_STICK_MOUNTPOINT}/public_key_${currentDate}.asc ${MASTER_KEY_ID} || die "Failed!"
+  [[ $interactive ]] && confirm "Copy exported key to \"transport\" USB stick?"
+  echo -n "  - Copying exported key to \"transport\" usb stick... "
+  sudo cp ~/public_key_${currentDate}.asc ${PUBLIC_USB_STICK_MOUNTPOINT} || die "Failed!"
   ok
   echo -n "  - Copying key-scripts to \"transport\" usb stick... "
-  mkdir -p ${PUBLIC_USB_STICK_MOUNTPOINT}/${KEY_SCRIPT_FOLDER_NAME} || die "Folder creation failed!"
-  cp -r ${scriptPath}/* ${PUBLIC_USB_STICK_MOUNTPOINT}/${KEY_SCRIPT_FOLDER_NAME} || die "Copying scripts failed!"
+  sudo mkdir -p ${PUBLIC_USB_STICK_MOUNTPOINT}/${KEY_SCRIPT_FOLDER_NAME} || die "Folder creation failed!"
+  sudo cp -r ${scriptPath}/* ${PUBLIC_USB_STICK_MOUNTPOINT}/${KEY_SCRIPT_FOLDER_NAME} || die "Copying scripts failed!"
   ok
   echo -n "  - Unmounting \"transport\" usb stick..."
   sudo umount ${PUBLIC_USB_STICK_MOUNTPOINT} || die "Failed!"
@@ -326,7 +372,12 @@ copy_public_files() {
 }
 
 cleanup() {
-  if [[ $? -ne 0 ]]; then
+  local exitCode=$?
+  if [[ ! -z "$1" ]]; then
+    exitCode=$1
+  fi
+  #echo "Exit Code: ${exitCode}"
+  if [[ ${exitCode} -ne 0 ]]; then
     [[ $interactive ]] && confirm "Clean up after unsuccessful operation?"
     echo "Cleaning up after unsuccessful operation... "
     sudo umount ${MASTER_USB_STICK_MOUNTPOINT} || true
@@ -334,17 +385,26 @@ cleanup() {
     sudo cryptsetup luksClose /dev/mapper/${MASTER_USB_STICK_MAPPING_NAME} || true
     sudo cryptsetup luksClose /dev/mapper/${BACKUP_USB_STICK_MAPPING_NAME} || true
     sudo umount ${RAM_DRIVE_MOUNTPOINT}  || true
+    sudo umount ${PUBLIC_USB_STICK_MOUNTPOINT} || true
     echo "done"
     echo
   else
     echo -e "${bold}${green}Finished successfully! :-)${reset}"
     echo
   fi
+  exit ${exitCode}
   
 }
 
-trap cleanup EXIT
+abort() {
+  trap - EXIT
+  cleanup 2
+}
 
+trap cleanup EXIT
+trap abort INT
+
+processArguments $@
 pre_checks
 ask_credentials
 mount_luks master
@@ -359,3 +419,5 @@ move_keys_to_yubikey
 copy_public_files
 umount_luks master
 umount_ram_drive
+
+
