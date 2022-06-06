@@ -2,16 +2,26 @@
 
 DEFAULT_IMAGE_FILE=./image.iso
 MBR_BIN_PATH=/usr/share/syslinux/mbr.bin
+DEFAULT_LOG_FILE=./create_usb_stick.log
 
 usb_device=
 image_file=
 real_device=
 yes_mode=false
 
+# Colors and formatting:
+red="\e[31m"
+yellow="\e[93m"
+reset="\e[0m"
+code="\e[2m"
+green="\e[32m"
+bold="\e[1m"
+
 while getopts "d:i:y" opt; do
    case ${opt} in
        d) usb_device=${OPTARG};;
        i) image_file=${OPTARG};;
+       l) log_file=${OPTARG};;
        y) yes_mode=true; echo "\"Yes-Mode\" enabled by \"-y\" flag. Assuming positive answer on all \"Are you sure...?\"-like questions."
    esac
 done
@@ -74,58 +84,68 @@ get_real_device() {
 
   real_device=$(get_device_path ${usb_device})
   if [[ ! -b ${real_device} ]]; then
-    die "Device \"${real_device}\" does not exist or isn't a block device!"
+    die "${red}Device \"${real_device}\" does not exist or isn't a block device!${reset}"
   fi
 }
 
-get_partitions() {
-  echo $(ls ${real_device})
+get_log_file() {
+  if [ -z "${log_file}" ]; then
+    log_file=${DEFAULT_LOG_FILE}
+  fi
+  touch ${log_file} || die "${red}Log file at ${reset}${code}${log_file}${reset}${red} does not seem to be writable! Aborting."
+  echo -e "Logging command outputs to ${code}${log_file}${reset}."
+  echo
 }
 
 get_image_file() {
   if [ -z "${image_file}" ]; then
-    echo "No image file given using \"-i\" parameter. Trying to use default image file \"${DEFAULT_IMAGE_FILE}\"."
+    echo -e "No image file given using ${code}-i${reset} parameter. Trying to use default image file ${code}${DEFAULT_IMAGE_FILE}${reset}."
     image_file=${DEFAULT_IMAGE_FILE}
   fi
   image_file=$(realpath ${image_file})
   if [[ ! -r ${image_file} ]]; then
-    die "Image file \"${image_file}\" is not present or not readable. Please supply a valid image file path using the \"-i\" parameter. Aborting."
+    die "${red}Image file ${reset}${code}${image_file}${reset}${red} is not present or not readable. Please supply a valid image file path using the ${reset}${code}-i${reset}${red} parameter. Aborting.${reset}"
   fi
 }
 
 check_real_device() {
-  partitions=$(get_partitions ${real_device})
+  deviceNameShort=${real_device#/dev/}
+  partitions=$(ls ${real_device}*)
   while read -r partition; do
     if [ -z "${partition}" ]; then
       continue
     fi
     if $(findmnt -rno SOURCE "${partition}" >/dev/null); then
-      die "It seems that at least the partition \"${partition}\" of the device \"${real_device}\" is mounted! Aborting."
+      die "${red}It seems that at least the partition ${reset}{$code}${partition}${reset}${red} of the device ${reset}${code}${real_device}${reset}${red} is mounted! Aborting.${reset}"
     fi
   done <<< "${partitions}"
 
+  echo -e -n ${yellow}
   if [ -z "${partitions}" ]; then
-    echo "It seems there are no (identifyable) partitions on \"${real_device}\". Please note that any data on the device will be lost if you continue though."
+    echo "It seems there are no (identifyable) partitions on ${reset}${code}${real_device}${reset}${yellow}. Please note that any data on the device will be lost if you continue though."
   else
-    partition_count=$(echo "{$partitions}" | wc -l)
-    echo "Device \"${real_device}\" contains ${partition_count} partition(s). All data on these partitions will be deleted!"
+    numPartitions=$(($(lsblk | grep ${deviceNameShort} | wc -l) - 1))
+    echo -e "Device ${reset}${code}${real_device}${reset}${yellow} contains ${numPartitions} partition(s). All data on these partitions will be deleted!"
   fi
+  echo -e -n ${reset}
 }
 
 
 check_prerequisites
 get_real_device
 get_image_file
+get_log_file
 check_real_device
 
-
 if ${yes_mode} || yesNoInput "Really go on?"; then
-  echo "STARTING PROCESS. This may take a while..."
+  echo -e "${bold}STARTING PROCESS${reset}"
+  echo "This may take a while..."
   echo
-  echo -n "Writing image to ${real_device}..."
-##  dd if=${image_file} of=${real_device} >/dev/null || die "dd failed!"
-  dd if=/dev/zero of=${real_device} bs=512 count=1
-  wipefs -afq ${real_device}
+  echo -n "  - Erasing boot block of device... "
+  dd if=/dev/zero of=${real_device} bs=512 count=2 >>${log_file} 2>&1 && echo -e "${green}OK${reset}"
+  echo -n "  - Wiping existing file systems... "
+  wipefs -afq ${real_device}  >>${log_file} 2>&1 && echo -e "${green}OK${reset}"
+  echo -n "  - Re-partitioning device..."
   parted -s -a optimal -- ${real_device} \
     mklabel gpt \
         unit mib \
@@ -136,44 +156,62 @@ if ${yes_mode} || yesNoInput "Really go on?"; then
         name 2 rootfs \
         mkpart primary 4099 -1 \
         name 3 persistence \
-        set 2 boot on
+        set 2 boot on \
+         >>${log_file} 2>&1
   if [ $? -ne 0 ]; then
-    die "parted failed. Aborting."
+    die "${code}parted${reset}${red} failed. Aborting.${reset}"
+  else
+    echo -e "${green}OK${reset}"
   fi
-  sgdisk ${real_device} --hybrid 2:1
+  echo -n "  - Hybridizing partition table... "
+  sgdisk ${real_device} --hybrid 2:1 >>${log_file} 2>&1 && echo -e "${green}OK${reset}"
+  echo -n "  - Making partition 2 bootable... "
   parted -s -a optimal -- ${real_device} \
-    set 2 boot on
-  cat "${MBR_BIN_PATH}" > ${real_device}
-  mkfs.vfat -F 32 -n XFCE ${real_device}2 >/dev/null || die "mkfs.fat32 failed. Aborting."
-  mkfs.ext4 -L persistence ${real_device}3 >/dev/null || die "mkfs.ext4 failed. Aborting."
-  sync || echo "Warning: Sync failed."
-  echo "finished!"
-  mkdir -p /media/live-usb
+    set 2 boot on \
+     >>${log_file} 2>&1
+  echo -e "${green}OK${reset}"
+  echo -n "  - Writing new boot block to device... "
+  cat "${MBR_BIN_PATH}" > ${real_device} && echo -e "${green}OK${reset}"
+  echo -n "  - Formatting partition 2 with FAT32... "
+  mkfs.vfat -F 32 ${real_device}2  >>${log_file} 2>&1 && echo -e "${green}OK${reset}" || die "mkfs.fat32 failed. Aborting."
+  echo -n "  - Formatting partition 3 with Ext4... "
+  mkfs.ext4 -L persistence ${real_device}3  >>${log_file} 2>&1 && echo -e "${green}OK${reset}" || die "mkfs.ext4 failed. Aborting."
+  sync || echo "${yellow}  Warning: Sync failed.${reset}"
+  echo -n "  - Extracting image contents to partition 2... "
+  mkdir -p /media/live-usb >>${log_file} 2>&1
   mount ${real_device}2 /media/live-usb
-  pushd /media/live-usb >/dev/null
-  7z x ${image_file}
-  mv isolinux syslinux
-  mv syslinux/isolinux.cfg syslinux/syslinux.cfg
-  mv syslinux/isolinux.bin syslinux/syslinux.bin
-  cp boot/grub/grub.cfg boot/grub/grub.cfg.bak
-  sed -i 's/\(boot=live.*\)$/\1 persistence/' boot/grub/grub.cfg
-  cp syslinux/menu.cfg syslinux/menu.cfg.bak
-  sed -i 's/\(boot=live.*\)$/\1 persistence/' syslinux/menu.cfg
-  mkdir -p /media/live-usb-persistence
-  mount ${real_device}3 /media/live-usb-persistence
+  pushd /media/live-usb >>${log_file} 2>&1
+  7z x ${image_file}  >>${log_file} 2>&1
+  echo -e "${green}OK${reset}"
+  echo -n "  - Preparing files... "
+  mv isolinux syslinux >>${log_file} 2>&1
+  mv syslinux/isolinux.cfg syslinux/syslinux.cfg >>${log_file} 2>&1
+  mv syslinux/isolinux.bin syslinux/syslinux.bin >>${log_file} 2>&1
+  cp boot/grub/grub.cfg boot/grub/grub.cfg.bak >>${log_file} 2>&1
+  sed -i 's/\(boot=live.*\)$/\1 persistence/' boot/grub/grub.cfg >>${log_file} 2>&1
+  cp syslinux/menu.cfg syslinux/menu.cfg.bak >>${log_file} 2>&1
+  sed -i 's/\(boot=live.*\)$/\1 persistence/' syslinux/menu.cfg >>${log_file} 2>&1
+  echo -e "${green}OK${reset}"
+  echo -n "  - Preparing persistence partition... "
+  mkdir -p /media/live-usb-persistence >>${log_file} 2>&1
+  mount ${real_device}3 /media/live-usb-persistence >>${log_file} 2>&1
   echo / union > /media/live-usb-persistence/persistence.conf
-  grub-install --target=x86_64-efi --efi-directory=/media/live-usb --boot-directory=/media/live-usb/boot --removable --recheck ${real_device}
+  echo -e "${green}OK${reset}"
+  echo -n "  - Installing GRUB... "
+  grub-install --target=x86_64-efi --efi-directory=/media/live-usb --boot-directory=/media/live-usb/boot --removable --recheck ${real_device} >>${log_file} 2>&1 && echo -e "${green}OK${reset}"
   #grub-install --target=i386-pc --boot-directory=/media/live-usb/boot --recheck --removable ${real_device}
-  popd >/dev/null
-  umount ${real_device}2
-  umount ${real_device}3
-  rm -r /media/live-usb
-  rm -r /media/live-usb-persistence
+  echo -n "  - Cleaning up... "
+  popd  >>${log_file} 2>&1
+  umount ${real_device}2 >>${log_file} 2>&1
+  umount ${real_device}3 >>${log_file} 2>&1
+  rm -r /media/live-usb >>${log_file} 2>&1
+  rm -r /media/live-usb-persistence >>${log_file} 2>&1
+  echo -e "${green}OK${reset}"
   echo
-  echo "PROCESS FINISHED"
+  echo -e "${green}${bold}PROCESS FINISHED${reset}"
   exit 0
 else
   echo
-  echo "PROCESS ABORTED"
+  echo -e "${red}${bold}PROCESS ABORTED${reset}"
   exit 1
 fi
