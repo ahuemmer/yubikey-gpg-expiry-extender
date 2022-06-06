@@ -355,16 +355,18 @@ create_backups() {
 move_keys_to_yubikey() {
   [[ $interactive ]] && confirm "Move regenerated keys to YubiKey?"
   echo "Moving regenerated keys to YubiKey:"
+  [[ $interactive ]] && confirm "Restart pcscd service?"
   echo -n "  - Restarting pcscd... "
   sudo -E systemctl restart pcscd && sleep 2 && ok || die "Failed!"
+  [[ $interactive ]] && confirm "Kill gpg-agent process?"
   echo -n "  - Killing gpg-agent process... "
   pkill gpg-agent && ok || echo "Warning: Could not kill gpg-agent!"
   echo -n "  - Making sure YubiKey is still present... "
   gpg --card-status 2>&1 | grep ${YUBIKEY_GPG_CARD_STATUS_IDENTIFIER} >/dev/null || die "YubiKey not found any more!"
   ok
+  [[ $interactive ]] && confirm "Finally copy keys to YubiKey?"
   echo -n "  - Moving Keys to YubiKey... "
   echo -e "key 1\nkeytocard\n1\ny\nkey 1\nkey 2\nkeytocard\n2\ny\nkey 2\nkey 3\nkeytocard\n3\ny\nsave\n"|gpg --command-fd 0 --no-tty --edit-key ${MASTER_KEY_ID} >/dev/null 2>&1 || die "Failed!"
-  #gpg --edit-key ${MASTER_KEY_ID} || die "Failed!"
   ok
   echo
 }
