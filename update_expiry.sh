@@ -36,6 +36,40 @@ processArguments() {
   done
 }
 
+check_single_command() {
+  local cmd=${1}
+  local useSudo=${2}
+  if [[ ${useSudo} == true ]]; then
+    #TODO: Find a better solution for the sudo case...
+    sudo which ${cmd} > /dev/null 2>&1 || die "Command \"${cmd}\" is needed (with sudo), but does not seem to be installed on your system or accessible by you."
+  else
+    command -v ${cmd} > /dev/null 2>&1 || die "Command \"${cmd}\" is needed, but does not seem to be installed on your system or accessible by you."
+  fi
+}
+
+check_commands() {
+  echo -n "Checking available commands... "
+  check_single_command gpg
+  check_single_command ping
+  check_single_command read
+  check_single_command mountpoint
+  check_single_command systemctl true
+  check_single_command mount true
+  check_single_command umount true
+  check_single_command cat
+  check_single_command chmod true
+  check_single_command export
+  check_single_command sudo
+  check_single_command cp
+  check_single_command chown true
+  check_single_command cryptsetup true
+  check_single_command cp
+  check_single_command mkdir
+  check_single_command pkill
+  ok
+  echo ""
+}
+
 
 pre_checks() {
   echo "Running pre-checks..."
@@ -52,7 +86,7 @@ pre_checks() {
   [[ -b /dev/disk/by-id/${PUBLIC_USB_STICK_UUID} ]] || die "Not found!"
   ok
   echo -n "  - Presence of YubiKey ... "
-  gpg --card-status 2>&1 | grep Yubikey >/dev/null || die "Not found!"
+  gpg --card-status 2>&1 | grep ${YUBIKEY_GPG_CARD_STATUS_IDENTIFIER} >/dev/null || die "Not found!"
   ok
   echo ""
 }
@@ -140,7 +174,7 @@ mount_luks() {
   else
     die "Must specify \"master\" or \"backup\" as first argument to ${FUNCNAME[0]}!"
   fi
-  
+
   local optionFlag=ro
   if [[ "$2" == "rw" ]]; then
     echo "with read and write access: "
@@ -152,15 +186,13 @@ mount_luks() {
   local cmdMkDir="sudo mkdir -p ${mountingpoint}"
   local cmdLuksOpen="sudo cryptsetup luksOpen ${mountdevice} ${mappingname} -d -"
   local cmdMount="sudo mount /dev/mapper/${mappingname} ${mountingpoint} -o ${optionFlag}"
-  
+
   [[ $interactive ]] && confirm "LUKS-mount $1 USB stick?" "${cmdMkDir}" "echo -n \"\${luksPassphrase}\" | ${cmdLuksOpen}" "${cmdMount}"
-  
+
   if [[ ! -b $mountdevice ]]; then
     die "Device ${mountdevice} not found!"
   fi
-  
-  
-  
+
   echo -n "  - Cheking mountpoint... "
   ${cmdMkDir} || die "Could not find/create ${mountingpoint}!"
   if mountpoint -q ${mountingpoint}; then
@@ -169,21 +201,21 @@ mount_luks() {
     optionFlag=remount,${optionFlag}
   fi
   ok
-  
+
   if [[ -z "${luksPassphrase}" ]]; then
     echo -n "  Please enter LUKS passphrase: "
     read -s luksPassphrase
     echo ""
   fi
-  
+
   echo -n "  - Decrypting volume... "
   echo -n "${luksPassphrase}" | ${cmdLuksOpen} || die "Could not decrypt volume ${mountdevice} using given password!"
   ok
-    
+
   echo -n "  - Mounting decrypted volume... "
   ${cmdMount} || die "Could not (re)mount /dev/mapper/${mappingname} at ${mountingpoint}!"
   ok
-  
+
   echo
 }
 
@@ -218,7 +250,7 @@ umount_luks() {
   else
     die "Must specify \"master\" or \"backup\" as first argument to ${FUNCNAME[0]}!"
   fi
-  
+
   echo -n "  - Checking mountpoint... "
   if mountpoint -q ${mountingpoint}; then
     sudo umount /dev/mapper/${mappingname} || die "Could not unmount /dev/mapper/${mappingname}!"
@@ -226,14 +258,14 @@ umount_luks() {
   else
     echo "Seems not to be mounted..."
   fi
-  
+
   echo -n "  - Undecrypting device... "
   if [ -b "/dev/mapper/${mappingname}" ]; then
     sudo cryptsetup luksClose ${mappingname} || die "Could not undecrypt device!"
     ok
   else
     echo "Seems not to have been decrypted..."
-  fi  
+  fi
   echo
 }
 
@@ -264,14 +296,14 @@ set_new_expiry_date() {
   local cmdMasterKey="gpg --quick-set-expire "${MASTER_KEY_FINGERPRINT}" ${DAYS_UNTIL_EXPIRY}"
   local cmdSubKeys="gpg --quick-set-expire "${MASTER_KEY_FINGERPRINT}" ${DAYS_UNTIL_EXPIRY} ${subKeyFingerprints}"
   local cmdRevocation="echo -e \"y\\n0\\n\\ny\\n\" | gpg --command-fd 0 --output ${GNUPGHOME}/revoke.asc --no-tty --gen-revoke ${MASTER_KEY_ID}"
-  
+
   [[ $interactive ]] && confirm "Update key expiry dates?" "${cmdMasterKey}" "${cmdSubKeys}" "${cmdRevocation}"
   echo "Updating key expiry dates: "
   echo -n "  - Updating master key expiry date... "
   ${cmdMasterKey} || die "Could not update expiry date of key with fingerprint ${MASTER_KEY_FINGERPRINT}!"
   ok
   echo -n "  - Updating subkeys expiry date... "
-  ${cmdSubKeys} 
+  ${cmdSubKeys}
   ok
   echo -n "  - Generating new revocation certificate... "
   if [[ -f ${GNUPGHOME}/revoke.asc ]]; then
@@ -323,12 +355,18 @@ create_backups() {
 move_keys_to_yubikey() {
   [[ $interactive ]] && confirm "Move regenerated keys to YubiKey?"
   echo "Moving regenerated keys to YubiKey:"
+  [[ $interactive ]] && confirm "Restart pcscd service?"
+  echo -n "  - Restarting pcscd... "
+  sudo -E systemctl restart pcscd && sleep 2 && ok || die "Failed!"
+  [[ $interactive ]] && confirm "Kill gpg-agent process?"
+  echo -n "  - Killing gpg-agent process... "
+  pkill gpg-agent && ok || echo "Warning: Could not kill gpg-agent!"
   echo -n "  - Making sure YubiKey is still present... "
-  gpg --card-status 2>&1 | grep Yubikey >/dev/null || die "YubiKey not found any more!"
+  gpg --card-status 2>&1 | grep ${YUBIKEY_GPG_CARD_STATUS_IDENTIFIER} >/dev/null || die "YubiKey not found any more!"
   ok
+  [[ $interactive ]] && confirm "Finally copy keys to YubiKey?"
   echo -n "  - Moving Keys to YubiKey... "
   echo -e "key 1\nkeytocard\n1\ny\nkey 1\nkey 2\nkeytocard\n2\ny\nkey 2\nkey 3\nkeytocard\n3\ny\nsave\n"|gpg --command-fd 0 --no-tty --edit-key ${MASTER_KEY_ID} >/dev/null 2>&1 || die "Failed!"
-  #gpg --edit-key ${MASTER_KEY_ID} || die "Failed!"
   ok
   echo
 }
@@ -367,7 +405,7 @@ copy_public_files() {
   ok
   echo -n "  - Unmounting \"transport\" usb stick..."
   sudo umount ${PUBLIC_USB_STICK_MOUNTPOINT} || die "Failed!"
-  ok  
+  ok
   echo
 }
 
@@ -393,7 +431,7 @@ cleanup() {
     echo
   fi
   exit ${exitCode}
-  
+
 }
 
 abort() {
@@ -405,6 +443,7 @@ trap cleanup EXIT
 trap abort INT
 
 processArguments $@
+check_commands
 pre_checks
 ask_credentials
 mount_luks master
@@ -419,5 +458,3 @@ move_keys_to_yubikey
 copy_public_files
 umount_luks master
 umount_ram_drive
-
-
