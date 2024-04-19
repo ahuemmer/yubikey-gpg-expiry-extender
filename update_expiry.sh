@@ -66,6 +66,7 @@ check_commands() {
   check_single_command cp
   check_single_command mkdir
   check_single_command pkill
+  check_single_command pcscd true
   ok
   echo ""
 }
@@ -75,6 +76,9 @@ pre_checks() {
   echo "Running pre-checks..."
   echo -n "  - Absence of Internet access... "
   ping -c 1 ${SERVER_TO_PING} >/dev/null 2>&1 && die "System is connected to the internet!"
+  ok
+  echo -n "  - Presence of SCDaemon... "
+  [[ -f /usr/lib/gnupg/scdaemon ]] || die "Not found!"
   ok
   echo -n "  - Presence of key master usb stick... "
   [[ -b /dev/disk/by-id/${MASTER_USB_STICK_UUID} ]] || die "Not found!"
@@ -360,7 +364,7 @@ move_keys_to_yubikey() {
   sudo -E systemctl restart pcscd && sleep 2 && ok || die "Failed!"
   [[ $interactive ]] && confirm "Kill gpg-agent process?"
   echo -n "  - Killing gpg-agent process... "
-  pkill gpg-agent && ok || echo "Warning: Could not kill gpg-agent!"
+  sudo pkill gpg-agent && ok || echo "Warning: Could not kill gpg-agent!"
   echo -n "  - Making sure YubiKey is still present... "
   gpg --card-status 2>&1 | grep ${YUBIKEY_GPG_CARD_STATUS_IDENTIFIER} >/dev/null || die "YubiKey not found any more!"
   ok
