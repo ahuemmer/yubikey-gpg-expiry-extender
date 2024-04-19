@@ -6,8 +6,10 @@ RAM_DRIVE_MOUNTPOINT=/media/ram-secret
 DATE_TIME_FORMAT=%Y%m%d%H%M%S
 GNUPG_HOME_PREFIX=gnupghome_
 
-# For some reason, the Yubikey will report with a string containing "Yubikey" OR "Yubico" when using gpg --card-status
+# For some reason, the Yubikey will report with a string containing "Yubikey" OR "Yubico" when using `gpg --card-status`
 # As of now, I couldn't find out why... Adapt this according to what your system behaves like.
+# You might as well use a more specific value like the serial number of your YubiKey - it just needs to be part of the
+# output of `gpg --card-status` in order for the Yubikey to be considered present.
 YUBIKEY_GPG_CARD_STATUS_IDENTIFIER=Yubico
 
 BACKUP_USB_STICK_UUID=usb-VendorCo_ProductCode_1231231231231231231-0:0-part1
