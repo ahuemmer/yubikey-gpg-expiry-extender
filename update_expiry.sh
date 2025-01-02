@@ -201,7 +201,7 @@ mount_luks() {
   ${cmdMkDir} || die "Could not find/create ${mountingpoint}!"
   if mountpoint -q ${mountingpoint}; then
     echo
-    echo -n "  Was mounted alreay! Remounting..."
+    echo -n "  Was mounted already! Remounting..."
     optionFlag=remount,${optionFlag}
   fi
   ok

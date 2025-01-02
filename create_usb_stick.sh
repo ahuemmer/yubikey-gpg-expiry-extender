@@ -160,7 +160,7 @@ echo -n "  - Erasing boot block of device... "
 dd if=/dev/zero of=${real_device} bs=512 count=2 >>${log_file} 2>&1 && ok
 echo -n "  - Wiping existing file systems... "
 wipefs -afq ${real_device}  >>${log_file} 2>&1 && ok
-echo -n "  - Re-partitioning device..."
+echo -n "  - Re-partitioning device... "
 parted -s -a optimal -- ${real_device} \
   mklabel gpt \
       unit mib \
