@@ -21,6 +21,8 @@ MASTER_USB_STICK_MAPPING_NAME=key-master
 
 MASTER_KEY_FINGERPRINT=123456789ABCDEFFEDCBA9876543210123456789
 MASTER_KEY_ID=0xFEDCBA9876543210
+
+# Using gpg --card-status, the value to enter here will be displayed as "Serial number".
 SMARTCARD_NUMBER=01234567
 
 # Todo: Retrieve automatically from gpg --card-status?
@@ -32,7 +34,7 @@ PUBLIC_USB_STICK_MOUNTPOINT=/media/public
 # Days "from now" until "new" key expiry
 DAYS_UNTIL_EXPIRY=128
 
-# File containing the passwords and lines in it containing the specific ones neeeded:
+# File containing the passwords and lines in it containing the specific ones needed:
 PASSWORD_FILE=${MASTER_USB_STICK_MOUNTPOINT}/Passwords.txt
 SECRET_KEY_PASSWORD_LINE=6
 ADMIN_PIN_LINE=18
