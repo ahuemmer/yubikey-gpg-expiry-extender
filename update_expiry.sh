@@ -8,6 +8,7 @@ keyPassphrase=
 GNUPGHOME=
 scriptPath="$(cd "$(dirname "$0")" ; pwd -P)"
 interactive=""
+updateTmpDir=
 
 
 processArguments() {
@@ -16,7 +17,7 @@ processArguments() {
       -i|--interactive)
         echo "\"Interactive\" flag was given. Using interactive mode to ask for continuation before each command block."
         echo
-        interactive=true    
+        interactive=true
       ;;
       -c|--command-preview)
         echo "\"Command-Preview\" flag was given (also implying \"interactive\" mode. Command preview will be displayed for special commands."
@@ -32,7 +33,7 @@ processArguments() {
         break
         ;;
     esac
-    shift  
+    shift
   done
 }
 
@@ -120,14 +121,16 @@ mount_ram_drive() {
   fi
   ${cmdMkDir} || die "Could not find/create ${RAM_DRIVE_MOUNTPOINT}!"
   ${cmdMount} || die "Could not mount RAM drive at ${RAM_DRIVE_MOUNTPOINT}!"
-  export GNUPGHOME=$(mktemp -d -p ${RAM_DRIVE_MOUNTPOINT})
+  updateTmpDir=$(mktemp -d -p ${RAM_DRIVE_MOUNTPOINT})
+  mkdir ${updateTmpDir}/GNUPGHOME
+  export GNUPGHOME=${updateTmpDir}/GNUPGHOME
   ok
   echo "    --> New GNUPGHOME is ${GNUPGHOME}."
   echo -n "  - Restarting pcscd... "
   sudo -E systemctl restart pcscd && sleep 2 || die "Failed!"
   ok
   echo -n "  - Creating fake pinentry script... "
-  fakePinentryPath=${GNUPGHOME}/${FAKE_PINENTRY_SH_FILE_NAME}
+  fakePinentryPath=${updateTmpDir}/${FAKE_PINENTRY_SH_FILE_NAME}
   echo "#!/bin/bash" > ${fakePinentryPath} || die "Echo failed!"
   echo ${adminPin@A} >> ${fakePinentryPath} || die "Echo failed!"
   echo "cardNumber=${SMARTCARD_NUMBER@Q}" >> ${fakePinentryPath} || die "Echo failed!"
@@ -141,7 +144,7 @@ mount_ram_drive() {
 
 create_gpgagent_conf() {
   [[ $interactive ]] && confirm "Create gpg-agent.conf in ephemeral GNUPGHOME?"
-  fakePinentryPath=${GNUPGHOME}/${FAKE_PINENTRY_SH_FILE_NAME}
+  fakePinentryPath=${updateTmpDir}/${FAKE_PINENTRY_SH_FILE_NAME}
   echo -n "  - Creating gpg-agent.conf... "
   echo "pinentry-program ${fakePinentryPath}" > ${GNUPGHOME}/gpg-agent.conf || die "Failed!"
   ok
@@ -418,7 +421,6 @@ cleanup() {
   if [[ ! -z "$1" ]]; then
     exitCode=$1
   fi
-  #echo "Exit Code: ${exitCode}"
   if [[ ${exitCode} -ne 0 ]]; then
     [[ $interactive ]] && confirm "Clean up after unsuccessful operation?"
     echo "Cleaning up after unsuccessful operation... "
@@ -430,12 +432,13 @@ cleanup() {
     sudo umount ${PUBLIC_USB_STICK_MOUNTPOINT} || true
     echo "done"
     echo
+    echo "${bold}${red}Operation was not successful. :-(${reset}"
+    echo "For some hints on troubleshooting, visit https://github.com/ahuemmer/yubikey-gpg-expiry-extender?tab=readme-ov-file#troubleshooting"
   else
     echo -e "${bold}${green}Finished successfully! :-)${reset}"
     echo
   fi
   exit ${exitCode}
-
 }
 
 abort() {

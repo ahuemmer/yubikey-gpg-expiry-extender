@@ -5,10 +5,12 @@
 #cardNumber=...
 #adminPin=...
 
-echo "GNUPGHOME=${GNUPGHOME}" >> /tmp/fake-pinentry.log
+FAKE_PINENTRY_LOGFILE=/tmp/fake-pinentry.log
+
+echo "GNUPGHOME=${GNUPGHOME}" >> ${FAKE_PINENTRY_LOGFILE}
 
 write() {
-  echo "$(date +%Y%m%d_%H%M%S) ANSWER: $*" >> /tmp/fake-pinentry.log
+  echo "$(date +%Y%m%d_%H%M%S) ANSWER: $*" >> ${FAKE_PINENTRY_LOGFILE}
   echo $*
 }
 
@@ -16,7 +18,7 @@ pin=
 
 echo "OK WARNING! Do NEVER use this in real production environments..."
 while read cmd rest; do
-  echo "$(date +%Y%m%d_%H%M%S) CMD: $cmd | Rest: $rest" >> /tmp/fake-pinentry.log
+  echo "$(date +%Y%m%d_%H%M%S) CMD: $cmd | Rest: $rest" >> ${FAKE_PINENTRY_LOGFILE}
   cmd=$(printf "%s" "$cmd" | tr 'A-Z' 'a-z')
   if [[ -z "${cmd}" ]]; then
     continue
@@ -32,9 +34,11 @@ while read cmd rest; do
     setdesc)
       if [[ ${rest} == *${masterKeyId}* ]] || [[ ${rest} == *Passphrase* ]]; then
         pin=${keyPassphrase}
+        echo "Answering with key passphrase" >> ${FAKE_PINENTRY_LOGFILE}
       fi
       if [[ ${rest} == *${cardNumber}* ]]; then
         pin=${adminPin}
+        echo "Answering with admin PIN" >> ${FAKE_PINENTRY_LOGFILE}
       fi
       write "OK"
       ;;
@@ -44,8 +48,8 @@ while read cmd rest; do
       ;;
     bye)
       write "OK"
-      echo "$(date +%Y%m%d_%H%M%S) Exiting" >> /tmp/fake-pinentry.log
-      echo >> /tmp/fake-pinentry.log
+      echo "$(date +%Y%m%d_%H%M%S) Exiting" >> ${FAKE_PINENTRY_LOGFILE}
+      echo >> ${FAKE_PINENTRY_LOGFILE}
       exit 0
       ;;
     *)

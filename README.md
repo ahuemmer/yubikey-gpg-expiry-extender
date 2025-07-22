@@ -119,6 +119,18 @@ There must be some keys present on your YubiKey already (so there's something to
 
 Some prerequisites will be checked in the beginning.
 
+## Troubleshooting
+
+When things don't work as expected, please first check these points:
+
+- Are the settings in your `settings.sh` really correct? Really really? :wink:
+- Use `update_expiry.sh -i` in order to get as close as possible to the failing step. Then try to run the commands that
+would be executed next manually and look if you can find the problem.
+  - When invoking `gpg` commands this way, `gpg -v` or even `gpg -v -v` might be helpful.
+- If the final moving of the updated keys to the YubiKey fails, a look at `/tmp/fake-pinentry.log` might help you. You
+should see both the lines `Answering with key passphrase` and `Answering with admin PIN` there on a successful run. (If
+you don't see one or both of them, you might refer to point 1 again... :wink:)
+
 ## Disclaimer
 
 I cannot guarantee that the scripts will work on your system! Furthermore, I even cannot ensure that they aren't harmful
