@@ -47,11 +47,12 @@ Therefore, you should have GnuPG &geq; 2.2.42 installed (or use an older GnuPG r
 This is problematic as the default Debian 12 ("Bookworm") GnuPG is version 2.2.40, which is definitely affected. To
 circumvent this problem, there are four options:
 
+- _Recommended:_ Use Debian 13 ("Trixie"), which I could proof to be working flawlessly.
 - Install GnuPG &geq; 2.2.42 in your Debian 12 system. (There's no backport and trying to install the newer version from
 the Debian testing distribution broke my test system, so I can't give any advice on how to do that. :confused:)
 - Use an older Debian version (I have tested it successfully with 9 and 11, so 10 will probably also work.)
 - Use another distro than Debian, coming with a non-affected GnuPG version.
-- Wait for Debian 13, which should also come with a non-affected version.
+
 
 ### System
 Your system must contain the needed packages (again: see
@@ -60,23 +61,25 @@ Your system must contain the needed packages (again: see
 
 Here is a summarized quotation, mainly from [the second URL](https://github.com/drduh/YubiKey-Guide):
 
+#### Example for Debian 12 and newer
+
+(Please note the [aforementioned](#warning-note-on-gnupg--debian-version) bug concerning Debian 12.)
+
+> ```bash
+> sudo apt update
+> sudo apt -y upgrade
+> sudo apt -y install wget gnupg2 gnupg-agent dirmngr cryptsetup scdaemon pcscd secure-delete yubikey-personalization libssl-dev swig libpcsclite-dev python3-pip python3-pyscard python3-openssl yubikey-manager
+> sudo systemctl enable pcscd
+> sudo systemctl start pcscd
+> ```
+
+#### Example for Debian 11
 > ```bash
 > sudo apt update
 > sudo apt -y upgrade
 > sudo apt -y install wget gnupg2 gnupg-agent dirmngr cryptsetup scdaemon pcscd secure-delete hopenpgp-tools yubikey-personalization libssl-dev swig libpcsclite-dev python3-pip python3-pyscard
 > pip3 install PyOpenSSL
 > pip3 install yubikey-manager
-> sudo systemctl enable pcscd
-> sudo systemctl start pcscd
-> ```
-
-**Note:** Because of the [aforementioned](#warning-note-on-gnupg--debian-version) bug, these commands apply to Debian 11
-only. For Debian 12, they look similar:
-
-> ```bash
-> sudo apt update
-> sudo apt -y upgrade
-> sudo apt -y install wget gnupg2 gnupg-agent dirmngr cryptsetup scdaemon pcscd secure-delete yubikey-personalization libssl-dev swig libpcsclite-dev python3-pip python3-pyscard python3-openssl yubikey-manager
 > sudo systemctl enable pcscd
 > sudo systemctl start pcscd
 > ```
@@ -109,7 +112,7 @@ There must be some keys present on your YubiKey already (so there's something to
 ## How to use it
 
 1. Set up your offline system. The `create_usb_stick.sh` script *might* be helpful to achieve this 
-   (especially when given a Debian live ISO image :wink:), but you will have to install some more packages later on
+   (especially when given a Debian 13 live ISO image :wink:), but you will have to install some more packages later on
    (see [above](#system)).
 2. Edit `settings.sh` and replace my dummy values with the ones you need as mentioned 
    [above](#configuration-in-settingssh).

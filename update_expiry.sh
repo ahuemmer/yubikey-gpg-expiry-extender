@@ -123,6 +123,7 @@ mount_ram_drive() {
   ${cmdMount} || die "Could not mount RAM drive at ${RAM_DRIVE_MOUNTPOINT}!"
   updateTmpDir=$(mktemp -d -p ${RAM_DRIVE_MOUNTPOINT})
   mkdir ${updateTmpDir}/GNUPGHOME
+  chmod 700 ${updateTmpDir}/GNUPGHOME
   export GNUPGHOME=${updateTmpDir}/GNUPGHOME
   ok
   echo "    --> New GNUPGHOME is ${GNUPGHOME}."
@@ -392,12 +393,6 @@ copy_public_files() {
   fi
   sudo mount /dev/disk/by-id/${PUBLIC_USB_STICK_UUID} ${PUBLIC_USB_STICK_MOUNTPOINT} || die "Failed!"
   ok
-  #echo -n "  - Checking / correcting access rights... "
-  #pushd ${PUBLIC_USB_STICK_MOUNTPOINT} >/dev/null 2>&1 || die "Pushd failed!"
-  #sudo chown -R user . || die "Chown failed!"
-  #sudo chmod -R 700 . || die "Chmod failed!"
-  #popd >/dev/null 2>&1 || die "Popd failed!"
-  #ok
   [[ $interactive ]] && confirm "Export public key?"
   echo -n "  - Exporting public key... "
   gpg --export --armor --output ~/public_key_${currentDate}.asc ${MASTER_KEY_ID}
