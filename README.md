@@ -63,7 +63,7 @@ Here is a summarized quotation, mainly from [the second URL](https://github.com/
 
 #### Example for Debian 12 and newer
 
-(Pleae note the [aforementioned](#warning-note-on-gnupg--debian-version) bug concerning Debian 12.)
+(Please note the [aforementioned](#warning-note-on-gnupg--debian-version) bug concerning Debian 12.)
 
 > ```bash
 > sudo apt update
