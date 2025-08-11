@@ -32,13 +32,13 @@ while read cmd rest; do
       write "OK"
       ;;
     setdesc)
-      if [[ ${rest} == *${masterKeyId}* ]] || [[ ${rest} == *Passphrase* ]]; then
+      if [[ ${rest} == *${masterKeyId}* ]] || [[ "${rest}" == ^.*[Pp]assphrase.*$ ]]; then
         pin=${keyPassphrase}
-        echo "Answering with key passphrase" >> ${FAKE_PINENTRY_LOGFILE}
+        echo "--> Answering with key passphrase on next getpin call." >> ${FAKE_PINENTRY_LOGFILE}
       fi
-      if [[ ${rest} == *${cardNumber}* ]]; then
+      if [[ ${rest// /} == *${cardNumber}* ]]; then
         pin=${adminPin}
-        echo "Answering with admin PIN" >> ${FAKE_PINENTRY_LOGFILE}
+        echo "--> Answering with YubiKey Admin PIN on next getpin call." >> ${FAKE_PINENTRY_LOGFILE}
       fi
       write "OK"
       ;;
